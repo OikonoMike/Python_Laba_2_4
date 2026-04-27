@@ -6,7 +6,7 @@ from src.logger import log_info
 
 
 class AsyncTaskQueue:
-    """Асинхронная очередь задач (с использованием asyncio.Condition)"""
+    """Асинхронная очередь задач с поддержкой итерации"""
 
     def __init__(self, max_size: int = 0) -> None:
         """Создаём пустую асинхронную очередь"""
@@ -33,12 +33,25 @@ class AsyncTaskQueue:
                 await self._condition.wait()
 
             if self._closed and not self._queue:
-                raise asyncio.CancelledError('Очередь закрыта')
+                raise StopAsyncIteration('Очередь закрыта и пуста')
 
             task = self._queue.popleft()
             log_info(f'Задача получена из очереди: ID={task.id}')
             self._condition.notify()
             return task
+
+    def __aiter__(self) -> 'AsyncTaskQueue':
+        """Асинхронный итератор (возвращаем саму очередь)"""
+        return self
+
+    async def __anext__(self) -> Task:
+        """Получаем следующую задачу"""
+        try:
+            return await asyncio.wait_for(self.get(), timeout=0.5) # таймаут для проверки закрытия
+        except asyncio.TimeoutError:
+            if self._closed and self.empty():
+                raise StopAsyncIteration
+            raise
 
     def task_done(self) -> None:
         """Сообщаем о завершении обработки задачи"""
